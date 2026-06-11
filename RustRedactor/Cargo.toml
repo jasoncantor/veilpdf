@@ -1,0 +1,10 @@
+[package]
+name = "hide-pii-redactor"
+version = "0.1.0"
+edition = "2024"
+description = "Rust CLI bridge for VeilPDF, a local macOS PDF PII redaction app."
+license = "MIT"
+repository = "https://github.com/jasoncantor/veilpdf"
+publish = false
+
+[dependencies]

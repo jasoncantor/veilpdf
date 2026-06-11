@@ -1,0 +1,12 @@
+.build/
+.swiftpm/
+.venv/
+.venv.broken-*/
+.ci-venv/
+dist/
+artifacts/
+target/
+RustRedactor/target/
+*.pdf
+!Fixtures/*.pdf
+.DS_Store

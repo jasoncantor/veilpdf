@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build macOS release
+    runs-on: macos-15
+    env:
+      HAS_SIGNING_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' && secrets.MACOS_CERTIFICATE_PASSWORD != '' }}
+      HAS_NOTARY_CREDENTIALS: ${{ secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Import Developer ID certificate
+        if: env.HAS_SIGNING_CERTIFICATE == 'true'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          keychain_path="$RUNNER_TEMP/veilpdf-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          identity="${MACOS_CODESIGN_IDENTITY:-Developer ID Application: Jason Cantor (46QSP33EUF)}"
+          echo "VEILPDF_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "VEILPDF_NOTARY_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
+
+      - name: Store notarization credentials
+        if: env.HAS_SIGNING_CERTIFICATE == 'true' && env.HAS_NOTARY_CREDENTIALS == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          profile="veilpdf-notary"
+          xcrun notarytool store-credentials "$profile" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --keychain "$VEILPDF_NOTARY_KEYCHAIN"
+          echo "VEILPDF_NOTARY_PROFILE=$profile" >> "$GITHUB_ENV"
+
+      - name: Build app bundle
+        run: APP_VERSION="${GITHUB_REF_NAME#v}" ./script/build_and_run.sh --build-only
+
+      - name: Package DMG
+        run: ./script/package_dmg.sh "$GITHUB_REF_NAME"
+
+      - name: Notarize DMG
+        if: env.HAS_SIGNING_CERTIFICATE == 'true' && env.HAS_NOTARY_CREDENTIALS == 'true'
+        run: ./script/notarize_dmg.sh "artifacts/VeilPDF-${GITHUB_REF_NAME}.dmg"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: VeilPDF-${{ github.ref_name }}-macos
+          path: artifacts/VeilPDF-${{ github.ref_name }}.dmg
+          if-no-files-found: error
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact="artifacts/VeilPDF-${GITHUB_REF_NAME}.dmg"
+          if [[ "$HAS_SIGNING_CERTIFICATE" == "true" && "$HAS_NOTARY_CREDENTIALS" == "true" ]]; then
+            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is signed, notarized, and ready for normal macOS installation."
+          elif [[ "$HAS_SIGNING_CERTIFICATE" == "true" ]]; then
+            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is signed but not notarized, so macOS may still show a Gatekeeper warning."
+          else
+            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is intended for development testing and may require manual approval in macOS."
+          fi
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$artifact" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "VeilPDF ${GITHUB_REF_NAME}" \
+              --notes "$notes" \
+              --verify-tag
+          fi

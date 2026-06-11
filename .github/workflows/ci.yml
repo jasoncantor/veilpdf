@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python smoke-test dependency
+        run: |
+          python3 -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --upgrade pip
+          .ci-venv/bin/python -m pip install PyMuPDF
+
+      - name: Test Rust redactor
+        run: cargo test --manifest-path RustRedactor/Cargo.toml
+
+      - name: Build Swift app
+        run: swift build --package-path "$PWD"
+
+      - name: Run PDF smoke test
+        run: PYTHON="$PWD/.ci-venv/bin/python" ./script/test_core.sh
