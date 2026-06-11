@@ -5,16 +5,25 @@ import Foundation
 final class RedactionStore: ObservableObject {
     @Published var jobs: [RedactionJob] = []
     @Published var selectedJobID: RedactionJob.ID?
-    @Published var settings = RedactionSettings()
+    @Published var settings: RedactionSettings {
+        didSet {
+            saveSettings()
+            if oldValue.outputFolder != settings.outputFolder {
+                refreshQueuedOutputURLs()
+            }
+        }
+    }
     @Published var runtimeCheck: RuntimeCheck?
     @Published var isCheckingRuntime = false
     @Published var isRedacting = false
     @Published var bannerMessage = "Add PDFs to redact detected PII into black boxes."
 
+    private static let settingsKey = "dev.local.VeilPDF.redactionSettings"
     private let client: RustRedactorClient
 
     init(client: RustRedactorClient = RustRedactorClient()) {
         self.client = client
+        self.settings = Self.loadSettings()
     }
 
     var selectedJob: RedactionJob? {
@@ -50,7 +59,6 @@ final class RedactionStore: ObservableObject {
             guard response == .OK, let url = panel.urls.first else { return }
             Task { @MainActor in
                 self?.settings.outputFolder = url
-                self?.refreshQueuedOutputURLs()
             }
         }
     }
@@ -140,5 +148,21 @@ final class RedactionStore: ObservableObject {
         let folder = settings.outputFolder ?? inputURL.deletingLastPathComponent()
         let base = inputURL.deletingPathExtension().lastPathComponent
         return folder.appendingPathComponent("\(base)-redacted.pdf")
+    }
+
+    private static func loadSettings() -> RedactionSettings {
+        guard
+            let data = UserDefaults.standard.data(forKey: settingsKey),
+            var settings = try? JSONDecoder().decode(RedactionSettings.self, from: data)
+        else {
+            return RedactionSettings()
+        }
+        settings.normalizeLabels()
+        return settings
+    }
+
+    private func saveSettings() {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        UserDefaults.standard.set(data, forKey: Self.settingsKey)
     }
 }

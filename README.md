@@ -20,6 +20,7 @@ If macOS blocks an older build, remove that copy and install the latest release 
 
 - Detects names, emails, phone numbers, addresses, IDs, credentials, URLs, organizations, and other PII labels.
 - Applies real PDF redactions with black filled redaction boxes.
+- Lets you choose which PII categories should be redacted.
 - Keeps processing local to your Mac.
 - Supports drag-and-drop PDF intake and batch-style job tracking.
 - Includes a regex test mode for quick local checks.
@@ -28,8 +29,9 @@ If macOS blocks an older build, remove that copy and install the latest release 
 
 1. Add one or more PDFs.
 2. Choose `GLiNER-PII` for model-based detection or `Regex Test Mode` for a quick rule-based pass.
-3. Click the play button or press `Cmd+R`.
-4. Review the new `-redacted.pdf` file before sharing it.
+3. Open Settings to choose the PII categories VeilPDF should redact.
+4. Click the play button or press `Cmd+R`.
+5. Review the new `-redacted.pdf` file before sharing it.
 
 Redacted files are saved next to the original PDF with `-redacted` appended to the filename.
 

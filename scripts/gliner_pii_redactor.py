@@ -145,7 +145,7 @@ def redact_pdf(args: argparse.Namespace) -> dict[str, Any]:
             continue
 
         if args.detector == "regex" or detector_used == "regex-fallback":
-            entities = detect_with_regex(text)
+            entities = detect_with_regex(text, labels)
         else:
             entities = detect_with_gliner(gliner_model, text, labels, args.threshold)
 
@@ -196,9 +196,12 @@ def detect_with_gliner(model: Any, text: str, labels: list[str], threshold: floa
     return entities
 
 
-def detect_with_regex(text: str) -> list[Entity]:
+def detect_with_regex(text: str, labels: list[str]) -> list[Entity]:
+    enabled_labels = {label.lower() for label in labels}
     entities: list[Entity] = []
     for label, pattern in REGEX_PATTERNS:
+        if label.lower() not in enabled_labels:
+            continue
         for match in pattern.finditer(text):
             value = clean_entity_text(match.group(0))
             if value:
