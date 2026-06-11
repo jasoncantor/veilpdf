@@ -13,17 +13,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MODEL = "urchade/gliner_multi_pii-v1"
+DEFAULT_MODEL = "knowledgator/gliner-pii-edge-v1.0"
 DEFAULT_LABELS = [
-    "person",
+    "name",
     "organization",
-    "email",
+    "email address",
     "phone number",
-    "address",
-    "social security number",
-    "credit card number",
-    "bank account number",
-    "date of birth",
+    "location address",
+    "ssn",
+    "credit card",
+    "bank account",
+    "dob",
     "passport number",
     "driver license",
     "medical record number",
@@ -35,12 +35,12 @@ DEFAULT_LABELS = [
 ]
 
 REGEX_PATTERNS = [
-    ("email", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)),
-    ("social security number", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
-    ("phone number", re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}(?!\d)")),
-    ("credit card number", re.compile(r"\b(?:\d[ -]*?){13,19}\b")),
-    ("ip address", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
-    ("url", re.compile(r"\bhttps?://[^\s<>)]+", re.IGNORECASE)),
+    (("email address", "email"), re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)),
+    (("ssn", "social security number"), re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    (("phone number",), re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}(?!\d)")),
+    (("credit card", "credit card number"), re.compile(r"\b(?:\d[ -]*?){13,19}\b")),
+    (("ip address",), re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
+    (("url",), re.compile(r"\bhttps?://[^\s<>)]+", re.IGNORECASE)),
 ]
 
 
@@ -80,16 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--labels-json", default="")
     parser.add_argument("--allow-regex-fallback", action="store_true")
     parser.add_argument("--download-model", action="store_true")
+    parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--device", choices=["auto", "metal", "mps", "cpu"], default="auto")
     parser.add_argument("--json", action="store_true")
     return parser
 
 
 def check_environment(args: argparse.Namespace) -> dict[str, Any]:
-    configure_model_cache(args.cache_dir)
+    configure_model_cache(args.cache_dir, offline=args.offline)
     errors: list[str] = []
     pymupdf_available = True
     gliner_available = True
     model_available = None
+    device = None
 
     try:
         import fitz  # noqa: F401
@@ -103,9 +106,16 @@ def check_environment(args: argparse.Namespace) -> dict[str, Any]:
         gliner_available = False
         errors.append(f"GLiNER unavailable: {exc}")
 
+    if gliner_available:
+        try:
+            device = resolve_torch_device(args.device)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"Acceleration unavailable: {exc}")
+
     if gliner_available and args.download_model:
         try:
-            load_gliner_model(args.model)
+            model = load_gliner_model(args.model, args.device)
+            device = str(model.device)
             model_available = True
         except Exception as exc:  # noqa: BLE001
             errors.append(f"GLiNER model unavailable: {exc}")
@@ -118,6 +128,7 @@ def check_environment(args: argparse.Namespace) -> dict[str, Any]:
         "model_available": model_available,
         "model_cache": configured_model_cache(args.cache_dir),
         "default_model": args.model,
+        "device": device,
         "errors": errors,
     }
 
@@ -134,7 +145,7 @@ def redact_pdf(args: argparse.Namespace) -> dict[str, Any]:
     start = time.monotonic()
     input_path = Path(args.input)
     output_path = Path(args.output)
-    configure_model_cache(args.cache_dir)
+    configure_model_cache(args.cache_dir, offline=args.offline)
     labels = parse_labels(args.labels_json)
     warnings: list[str] = []
     detector_used = args.detector
@@ -146,7 +157,7 @@ def redact_pdf(args: argparse.Namespace) -> dict[str, Any]:
     gliner_model = None
     if args.detector == "gliner":
         try:
-            gliner_model = load_gliner_model(args.model)
+            gliner_model = load_gliner_model(args.model, args.device)
         except Exception as exc:  # noqa: BLE001
             if not args.allow_regex_fallback:
                 raise RuntimeError(f"GLiNER could not be loaded: {exc}") from exc
@@ -188,20 +199,46 @@ def redact_pdf(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def load_gliner_model(model_id: str) -> Any:
+def load_gliner_model(model_id: str, device_preference: str = "auto") -> Any:
+    device = resolve_torch_device(device_preference)
     from gliner import GLiNER
 
-    return GLiNER.from_pretrained(model_id)
+    model = GLiNER.from_pretrained(model_id, map_location="cpu")
+    if device != "cpu":
+        model.to(device)
+    return model
 
 
-def configure_model_cache(cache_dir: str) -> None:
-    if not cache_dir:
-        return
-    cache_path = Path(cache_dir).expanduser()
-    cache_path.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("HF_HOME", str(cache_path))
-    os.environ.setdefault("HF_HUB_CACHE", str(cache_path / "hub"))
-    os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_path / "transformers"))
+def resolve_torch_device(device_preference: str) -> str:
+    preference = (device_preference or "auto").lower()
+    if preference in {"auto", "metal", "mps"}:
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+    import torch
+
+    if preference == "cpu":
+        return "cpu"
+    if preference not in {"auto", "metal", "mps"}:
+        raise ValueError(f"Unsupported acceleration mode: {device_preference}")
+
+    mps_available = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+    if mps_available:
+        return "mps"
+    if preference in {"metal", "mps"}:
+        raise RuntimeError("Metal acceleration was requested, but PyTorch MPS is not available on this Mac.")
+    return "cpu"
+
+
+def configure_model_cache(cache_dir: str, offline: bool = False) -> None:
+    if cache_dir:
+        cache_path = Path(cache_dir).expanduser()
+        cache_path.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("HF_HOME", str(cache_path))
+        os.environ.setdefault("HF_HUB_CACHE", str(cache_path / "hub"))
+        os.environ.setdefault("TRANSFORMERS_CACHE", str(cache_path / "transformers"))
+    if offline:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 
 def configured_model_cache(cache_dir: str) -> str:
@@ -230,13 +267,14 @@ def detect_with_gliner(model: Any, text: str, labels: list[str], threshold: floa
 def detect_with_regex(text: str, labels: list[str]) -> list[Entity]:
     enabled_labels = {label.lower() for label in labels}
     entities: list[Entity] = []
-    for label, pattern in REGEX_PATTERNS:
-        if label.lower() not in enabled_labels:
+    for aliases, pattern in REGEX_PATTERNS:
+        matched_label = next((label for label in aliases if label.lower() in enabled_labels), None)
+        if matched_label is None:
             continue
         for match in pattern.finditer(text):
             value = clean_entity_text(match.group(0))
             if value:
-                entities.append(Entity(text=value, label=label, score=1.0))
+                entities.append(Entity(text=value, label=matched_label, score=1.0))
     return entities
 
 

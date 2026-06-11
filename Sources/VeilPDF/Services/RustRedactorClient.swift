@@ -27,6 +27,7 @@ struct RustRedactorClient {
                 "--helper", paths.helper.path,
                 "--python", paths.python,
                 "--model", settings.modelIdentifier,
+                "--device", settings.accelerationMode.rawValue,
                 "--cache-dir", paths.modelCache.path,
                 "--json"
             ]
@@ -34,20 +35,23 @@ struct RustRedactorClient {
         return try decode(RuntimeCheck.self, from: output)
     }
 
-    func downloadModel(settings: RedactionSettings) async throws -> RuntimeCheck {
+    func downloadModel(settings: RedactionSettings, offline: Bool = false) async throws -> RuntimeCheck {
         let paths = ProjectPaths.resolve(settings: settings)
-        let output = try await runRedactor(
-            at: paths.redactor,
-            arguments: [
-                "check",
-                "--helper", paths.helper.path,
-                "--python", paths.python,
-                "--model", settings.modelIdentifier,
-                "--cache-dir", paths.modelCache.path,
-                "--download-model",
-                "--json"
-            ]
-        )
+        var arguments = [
+            "check",
+            "--helper", paths.helper.path,
+            "--python", paths.python,
+            "--model", settings.modelIdentifier,
+            "--device", settings.accelerationMode.rawValue,
+            "--cache-dir", paths.modelCache.path,
+            "--download-model",
+            "--json",
+        ]
+        if offline {
+            arguments.append("--offline")
+        }
+
+        let output = try await runRedactor(at: paths.redactor, arguments: arguments)
         return try decode(RuntimeCheck.self, from: output)
     }
 
@@ -60,6 +64,7 @@ struct RustRedactorClient {
             "--helper", paths.helper.path,
             "--python", paths.python,
             "--model", settings.modelIdentifier,
+            "--device", settings.accelerationMode.rawValue,
             "--cache-dir", paths.modelCache.path,
             "--threshold", String(format: "%.2f", settings.threshold),
             "--detector", settings.detectorMode.rawValue,

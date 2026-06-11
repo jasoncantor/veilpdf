@@ -68,6 +68,9 @@ jobs:
             --keychain "$VEILPDF_NOTARY_KEYCHAIN"
           echo "VEILPDF_NOTARY_PROFILE=$profile" >> "$GITHUB_ENV"
 
+      - name: Build bundled GLiNER runtime payload
+        run: ./script/build_runtime_payload.sh
+
       - name: Build app bundle
         run: APP_VERSION="${GITHUB_REF_NAME#v}" ./script/build_and_run.sh --build-only
 
@@ -91,11 +94,11 @@ jobs:
         run: |
           artifact="artifacts/VeilPDF-${GITHUB_REF_NAME}.dmg"
           if [[ "$HAS_SIGNING_CERTIFICATE" == "true" && "$HAS_NOTARY_CREDENTIALS" == "true" ]]; then
-            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is signed, notarized, and ready for normal macOS installation."
+            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is signed, notarized, and includes the bundled GLiNER runtime payload, Mac-friendly edge model cache, and Metal acceleration support through PyTorch MPS."
           elif [[ "$HAS_SIGNING_CERTIFICATE" == "true" ]]; then
-            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is signed but not notarized, so macOS may still show a Gatekeeper warning."
+            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build includes the bundled GLiNER runtime payload, Mac-friendly edge model cache, and Metal acceleration support through PyTorch MPS. It is signed but not notarized, so macOS may still show a Gatekeeper warning."
           else
-            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build is intended for development testing and may require manual approval in macOS."
+            notes="Download the DMG, open it, and drag VeilPDF.app to Applications. This build includes the bundled GLiNER runtime payload, Mac-friendly edge model cache, and Metal acceleration support through PyTorch MPS, but is intended for development testing and may require manual approval in macOS."
           fi
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "$artifact" --repo "$GITHUB_REPOSITORY" --clobber

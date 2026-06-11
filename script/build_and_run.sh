@@ -22,6 +22,7 @@ APP_ICON="$APP_RESOURCES/$APP_NAME.icns"
 RUST_MANIFEST="$ROOT_DIR/RustRedactor/Cargo.toml"
 RUST_BINARY="$ROOT_DIR/RustRedactor/target/debug/hide-pii-redactor"
 HELPER_SCRIPT="$ROOT_DIR/scripts/gliner_pii_redactor.py"
+RUNTIME_PAYLOAD="$DIST_DIR/RuntimePayload"
 if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
   DEFAULT_PYTHON="$ROOT_DIR/.venv/bin/python"
 else
@@ -48,6 +49,9 @@ build_all() {
   cp "$swift_bin_dir/$APP_NAME" "$APP_BINARY"
   cp "$RUST_BINARY" "$APP_REDACTOR_BINARY"
   cp "$HELPER_SCRIPT" "$APP_RESOURCES/gliner_pii_redactor.py"
+  if [[ -d "$RUNTIME_PAYLOAD" ]]; then
+    cp -R "$RUNTIME_PAYLOAD" "$APP_RESOURCES/"
+  fi
   chmod +x "$APP_BINARY"
   chmod +x "$APP_REDACTOR_BINARY"
   chmod 0644 "$APP_RESOURCES/gliner_pii_redactor.py"

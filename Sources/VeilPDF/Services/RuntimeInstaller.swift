@@ -34,6 +34,9 @@ struct RuntimeInstaller {
         try fileManager.createDirectory(at: AppSupportPaths.runtimeDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: AppSupportPaths.modelCacheDirectory, withIntermediateDirectories: true)
 
+        let bundledWheelhouse = AppSupportPaths.bundledWheelhouseDirectory
+        let bundledModelCache = AppSupportPaths.bundledModelCacheDirectory
+
         let basePython = try resolveBasePython(settings: settings)
         await progress("Creating Python environment")
         try await run(executable: basePython, arguments: ["-m", "venv", AppSupportPaths.runtimeVirtualEnvironment.path])
@@ -53,13 +56,47 @@ struct RuntimeInstaller {
         await progress("Updating pip")
         try await run(executable: runtimePython, arguments: ["-m", "pip", "install", "--upgrade", "pip"])
 
-        await progress("Installing GLiNER and PDF packages")
-        try await run(executable: runtimePython, arguments: ["-m", "pip", "install", "--upgrade", "PyMuPDF", "gliner"])
+        if let bundledWheelhouse {
+            await progress("Installing included GLiNER packages")
+            do {
+                try await run(
+                    executable: runtimePython,
+                    arguments: [
+                        "-m", "pip", "install",
+                        "--no-index",
+                        "--find-links", bundledWheelhouse.path,
+                        "--upgrade",
+                        "PyMuPDF",
+                        "gliner",
+                    ]
+                )
+            } catch {
+                await progress("Downloading compatible GLiNER packages")
+                try await run(
+                    executable: runtimePython,
+                    arguments: [
+                        "-m", "pip", "install",
+                        "--find-links", bundledWheelhouse.path,
+                        "--upgrade",
+                        "PyMuPDF",
+                        "gliner",
+                    ]
+                )
+            }
+        } else {
+            await progress("Downloading GLiNER packages")
+            try await run(executable: runtimePython, arguments: ["-m", "pip", "install", "--upgrade", "PyMuPDF", "gliner"])
+        }
 
-        await progress("Downloading GLiNER-PII model")
+        if let bundledModelCache {
+            await progress("Installing included GLiNER-PII model")
+            try copyDirectoryContents(from: bundledModelCache, to: AppSupportPaths.modelCacheDirectory)
+        }
+
+        await progress(bundledModelCache == nil ? "Downloading GLiNER-PII model" : "Verifying included GLiNER-PII model")
         var installedSettings = settings
         installedSettings.pythonPath = runtimePython.path
-        let check = try await client.downloadModel(settings: installedSettings)
+        let check = try await client.downloadModel(settings: installedSettings, offline: bundledModelCache != nil)
         guard check.glinerAvailable, check.modelAvailable == true else {
             let message = check.errors.isEmpty ? "GLiNER runtime installed, but the model could not be loaded." : check.errors.joined(separator: " ")
             throw RuntimeInstallerError.runtimeUnavailable(message)
@@ -90,6 +127,25 @@ struct RuntimeInstaller {
         }
 
         throw RuntimeInstallerError.pythonUnavailable
+    }
+
+    private func copyDirectoryContents(from source: URL, to destination: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        let items = try fileManager.contentsOfDirectory(
+            at: source,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+
+        for item in items {
+            let target = destination.appendingPathComponent(item.lastPathComponent)
+            if fileManager.fileExists(atPath: target.path) {
+                try fileManager.removeItem(at: target)
+            }
+            try fileManager.copyItem(at: item, to: target)
+        }
     }
 
     private func resolveExecutable(_ command: String) -> URL? {

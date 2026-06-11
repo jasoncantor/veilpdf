@@ -37,7 +37,7 @@ struct VeilPDFApp: App {
         Settings {
             SettingsView()
                 .environmentObject(store)
-                .frame(width: 520)
+                .frame(minWidth: 720, minHeight: 660)
         }
     }
 }

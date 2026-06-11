@@ -229,6 +229,14 @@ final class RedactionStore: ObservableObject {
         else {
             return RedactionSettings()
         }
+        let migratedDefaultModel = RedactionSettings.legacyDefaultModelIdentifiers.contains(settings.modelIdentifier)
+        if migratedDefaultModel {
+            settings.modelIdentifier = RedactionSettings.defaultModelIdentifier
+        }
+        settings.migrateLegacyLabels()
+        if migratedDefaultModel, settings.labels.count == RedactionSettings.defaultLabels.count {
+            settings.labels = RedactionSettings.defaultLabels
+        }
         settings.normalizeLabels()
         return settings
     }

@@ -30,6 +30,7 @@ struct RuntimeCheck: Decodable {
     let modelAvailable: Bool?
     let modelCache: String?
     let defaultModel: String
+    let device: String?
     let errors: [String]
 
     enum CodingKeys: String, CodingKey {
@@ -40,6 +41,7 @@ struct RuntimeCheck: Decodable {
         case modelAvailable = "model_available"
         case modelCache = "model_cache"
         case defaultModel = "default_model"
+        case device
         case errors
     }
 }

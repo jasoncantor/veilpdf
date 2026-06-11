@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const DEFAULT_MODEL: &str = "urchade/gliner_multi_pii-v1";
+const DEFAULT_MODEL: &str = "knowledgator/gliner-pii-edge-v1.0";
 
 fn main() {
     if let Err(error) = run() {
@@ -32,6 +32,8 @@ fn run_check(cli: &Cli) -> Result<(), String> {
         .arg("--check")
         .arg("--model")
         .arg(&cli.model)
+        .arg("--device")
+        .arg(&cli.device)
         .arg("--json");
 
     if let Some(cache_dir) = cli.cache_dir_arg() {
@@ -39,6 +41,9 @@ fn run_check(cli: &Cli) -> Result<(), String> {
     }
     if cli.download_model {
         command.arg("--download-model");
+    }
+    if cli.offline {
+        command.arg("--offline");
     }
 
     let output = command
@@ -75,6 +80,8 @@ fn run_redact(cli: &Cli) -> Result<(), String> {
         .arg(&output)
         .arg("--model")
         .arg(&cli.model)
+        .arg("--device")
+        .arg(&cli.device)
         .arg("--threshold")
         .arg(format!("{:.2}", cli.threshold))
         .arg("--detector")
@@ -110,12 +117,14 @@ struct Cli {
     helper: Option<PathBuf>,
     python: String,
     model: String,
+    device: String,
     cache_dir: Option<PathBuf>,
     threshold: f64,
     detector: String,
     labels: Vec<String>,
     allow_regex_fallback: bool,
     download_model: bool,
+    offline: bool,
 }
 
 impl Cli {
@@ -129,12 +138,14 @@ impl Cli {
             helper: None,
             python: env::var("VEILPDF_PYTHON").unwrap_or_else(|_| "python3".to_string()),
             model: DEFAULT_MODEL.to_string(),
+            device: "auto".to_string(),
             cache_dir: env::var("VEILPDF_MODEL_CACHE").ok().map(PathBuf::from),
             threshold: 0.50,
             detector: "gliner".to_string(),
             labels: default_labels(),
             allow_regex_fallback: false,
             download_model: false,
+            offline: false,
         };
 
         while let Some(arg) = iter.next() {
@@ -144,6 +155,7 @@ impl Cli {
                 "--helper" => cli.helper = Some(PathBuf::from(next_value(&mut iter, "--helper")?)),
                 "--python" => cli.python = next_value(&mut iter, "--python")?,
                 "--model" => cli.model = next_value(&mut iter, "--model")?,
+                "--device" => cli.device = next_value(&mut iter, "--device")?,
                 "--cache-dir" => cli.cache_dir = Some(PathBuf::from(next_value(&mut iter, "--cache-dir")?)),
                 "--threshold" => {
                     let value = next_value(&mut iter, "--threshold")?;
@@ -160,6 +172,7 @@ impl Cli {
                 }
                 "--allow-regex-fallback" => cli.allow_regex_fallback = true,
                 "--download-model" => cli.download_model = true,
+                "--offline" => cli.offline = true,
                 "--json" => {}
                 "--help" | "-h" => return Err(usage()),
                 unknown => return Err(format!("unknown argument: {unknown}\n{}", usage())),
@@ -168,6 +181,9 @@ impl Cli {
 
         if cli.detector != "gliner" && cli.detector != "regex" {
             return Err("--detector must be gliner or regex".to_string());
+        }
+        if !["auto", "metal", "mps", "cpu"].contains(&cli.device.as_str()) {
+            return Err("--device must be auto, metal, mps, or cpu".to_string());
         }
         if !(0.0..=1.0).contains(&cli.threshold) {
             return Err("--threshold must be between 0 and 1".to_string());
@@ -246,15 +262,15 @@ fn json_escape(value: &str) -> String {
 
 fn default_labels() -> Vec<String> {
     [
-        "person",
+        "name",
         "organization",
-        "email",
+        "email address",
         "phone number",
-        "address",
-        "social security number",
-        "credit card number",
-        "bank account number",
-        "date of birth",
+        "location address",
+        "ssn",
+        "credit card",
+        "bank account",
+        "dob",
         "passport number",
         "driver license",
         "medical record number",
@@ -271,8 +287,8 @@ fn default_labels() -> Vec<String> {
 
 fn usage() -> String {
     "usage:
-  hide-pii-redactor check --helper <path> [--python <path>] [--model <id>] [--cache-dir <path>] [--download-model] --json
-  hide-pii-redactor redact --input <pdf> --output <pdf> --helper <path> [--python <path>] [--model <id>] [--cache-dir <path>] [--threshold 0.50] [--detector gliner|regex] [--label <label>] [--allow-regex-fallback] --json"
+  hide-pii-redactor check --helper <path> [--python <path>] [--model <id>] [--device auto|metal|mps|cpu] [--cache-dir <path>] [--download-model] [--offline] --json
+  hide-pii-redactor redact --input <pdf> --output <pdf> --helper <path> [--python <path>] [--model <id>] [--device auto|metal|mps|cpu] [--cache-dir <path>] [--threshold 0.50] [--detector gliner|regex] [--label <label>] [--allow-regex-fallback] --json"
         .to_string()
 }
 
@@ -312,10 +328,14 @@ mod tests {
             "check".to_string(),
             "--cache-dir".to_string(),
             "/tmp/models".to_string(),
+            "--device".to_string(),
+            "metal".to_string(),
             "--download-model".to_string(),
         ])
         .unwrap();
         assert_eq!(cli.cache_dir_arg(), Some("/tmp/models".to_string()));
+        assert_eq!(cli.device, "metal");
         assert!(cli.download_model);
+        assert!(!cli.offline);
     }
 }

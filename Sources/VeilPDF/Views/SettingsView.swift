@@ -3,164 +3,218 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var store: RedactionStore
 
+    private let labelColumns = [
+        GridItem(.adaptive(minimum: 210), spacing: 12, alignment: .leading)
+    ]
+
     var body: some View {
-        Form {
-            Section("Detection") {
-                Picker("Detector", selection: $store.settings.detectorMode) {
-                    ForEach(DetectorMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                settingsSection("Detection") {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                        settingsRow("Detector") {
+                            Picker("Detector", selection: $store.settings.detectorMode) {
+                                ForEach(DetectorMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 220, alignment: .leading)
+                        }
+
+                        settingsRow("Model") {
+                            TextField("Model", text: $store.settings.modelIdentifier)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        settingsRow("Acceleration") {
+                            Picker("Acceleration", selection: $store.settings.accelerationMode) {
+                                ForEach(AccelerationMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 320, alignment: .leading)
+                        }
+
+                        settingsRow("Threshold") {
+                            HStack(spacing: 12) {
+                                Slider(value: $store.settings.threshold, in: 0.1...0.95, step: 0.05)
+                                Text(store.settings.threshold.formatted(.number.precision(.fractionLength(2))))
+                                    .monospacedDigit()
+                                    .frame(width: 42, alignment: .trailing)
+                            }
+                        }
+
+                        settingsRow("Python") {
+                            TextField("Auto-detect", text: $store.settings.pythonPath)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        settingsRow("Fallback") {
+                            Toggle("Allow regex fallback", isOn: $store.settings.allowRegexFallback)
+                                .toggleStyle(.switch)
+                        }
                     }
                 }
 
-                TextField("Model", text: $store.settings.modelIdentifier)
-
-                HStack {
-                    Text("Threshold")
-                    Slider(value: $store.settings.threshold, in: 0.1...0.95, step: 0.05)
-                    Text(store.settings.threshold.formatted(.number.precision(.fractionLength(2))))
-                        .monospacedDigit()
-                        .frame(width: 42, alignment: .trailing)
-                }
-
-                TextField("Python", text: $store.settings.pythonPath, prompt: Text("Auto-detect"))
-
-                Toggle("Allow regex fallback", isOn: $store.settings.allowRegexFallback)
-            }
-
-            Section("PII Categories") {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text(store.settings.selectedLabelSummary)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Select All") {
-                            store.settings.enableAllLabels()
+                settingsSection("PII Categories") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 10) {
+                            Text(store.settings.selectedLabelSummary)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Select All") {
+                                store.settings.enableAllLabels()
+                            }
+                            Button("Reset") {
+                                store.settings.resetLabels()
+                            }
                         }
-                        Button("Reset") {
-                            store.settings.resetLabels()
-                        }
-                    }
 
-                    ForEach(RedactionSettings.labelGroups) { group in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(group.title)
-                                .font(.subheadline.weight(.semibold))
-                            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
-                                let pairs = group.labels.chunked(into: 2)
-                                ForEach(pairs.indices, id: \.self) { index in
-                                    GridRow {
-                                        ForEach(pairs[index]) { option in
-                                            Toggle(option.title, isOn: labelBinding(option.id))
-                                                .toggleStyle(.checkbox)
-                                                .frame(minWidth: 180, alignment: .leading)
-                                        }
-                                        if pairs[index].count == 1 {
-                                            Color.clear
-                                        }
+                        ForEach(RedactionSettings.labelGroups) { group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(group.title)
+                                    .font(.subheadline.weight(.semibold))
+
+                                LazyVGrid(columns: labelColumns, alignment: .leading, spacing: 7) {
+                                    ForEach(group.labels) { option in
+                                        Toggle(option.title, isOn: labelBinding(option.id))
+                                            .toggleStyle(.checkbox)
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            Section("Output") {
-                HStack {
-                    Text("Output")
-                    Spacer()
-                    Text(store.settings.outputFolder?.compactPath ?? "Next to source PDFs")
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Button("Choose...") {
-                        store.presentOutputFolderPanel()
-                    }
-                }
-            }
-
-            Section("Runtime") {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Button {
-                            Task { await store.installRuntime() }
-                        } label: {
-                            if store.isInstallingRuntime {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Label("Install GLiNER Runtime", systemImage: "square.and.arrow.down")
-                            }
-                        }
-                        .disabled(store.isInstallingRuntime)
-
-                        Button {
-                            Task { await store.checkRuntime() }
-                        } label: {
-                            if store.isCheckingRuntime {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Label("Check Runtime", systemImage: "stethoscope")
-                            }
-                        }
-                        .disabled(store.isCheckingRuntime || store.isInstallingRuntime)
-                    }
-
-                    if !store.runtimeInstallMessage.isEmpty {
-                        Text(store.runtimeInstallMessage)
-                            .font(.caption)
+                settingsSection("Output") {
+                    HStack(spacing: 12) {
+                        Text("Output folder")
                             .foregroundStyle(.secondary)
+                            .frame(width: 120, alignment: .leading)
+                        Text(store.settings.outputFolder?.compactPath ?? "Next to source PDFs")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                        Spacer()
+                        Button("Choose...") {
+                            store.presentOutputFolderPanel()
+                        }
                     }
+                }
 
-                    if let check = store.runtimeCheck {
-                        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                            runtimeRow("Python", check.python)
-                            runtimeRow("PyMuPDF", check.pymupdfAvailable ? "Available" : "Missing")
-                            runtimeRow("GLiNER", check.glinerAvailable ? "Available" : "Missing")
-                            if let modelAvailable = check.modelAvailable {
-                                runtimeRow("Model", modelAvailable ? "Ready" : "Not downloaded")
+                settingsSection("Runtime") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Button {
+                                Task { await store.installRuntime() }
+                            } label: {
+                                if store.isInstallingRuntime {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Label("Install Included Runtime", systemImage: "square.and.arrow.down")
+                                }
                             }
-                            if let modelCache = check.modelCache, !modelCache.isEmpty {
-                                runtimeRow("Cache", modelCache)
+                            .disabled(store.isInstallingRuntime)
+
+                            Button {
+                                Task { await store.checkRuntime() }
+                            } label: {
+                                if store.isCheckingRuntime {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Label("Check Runtime", systemImage: "stethoscope")
+                                }
+                            }
+                            .disabled(store.isCheckingRuntime || store.isInstallingRuntime)
+                        }
+
+                        if !store.runtimeInstallMessage.isEmpty {
+                            Text(store.runtimeInstallMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let check = store.runtimeCheck {
+                            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                                runtimeRow("Python", check.python)
+                                runtimeRow("PyMuPDF", check.pymupdfAvailable ? "Available" : "Missing")
+                                runtimeRow("GLiNER", check.glinerAvailable ? "Available" : "Missing")
+                                if let modelAvailable = check.modelAvailable {
+                                    runtimeRow("Model", modelAvailable ? "Ready" : "Not available")
+                                }
+                                if let device = check.device, !device.isEmpty {
+                                    runtimeRow("Device", device)
+                                }
+                                if let modelCache = check.modelCache, !modelCache.isEmpty {
+                                    runtimeRow("Cache", modelCache)
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            Section("Updates") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Button {
-                            Task { await store.checkForUpdates() }
-                        } label: {
-                            if store.isCheckingForUpdates {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                settingsSection("Updates") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            Button {
+                                Task { await store.checkForUpdates() }
+                            } label: {
+                                if store.isCheckingForUpdates {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                                }
+                            }
+                            .disabled(store.isCheckingForUpdates)
+
+                            if store.updateInfo?.isUpdateAvailable == true {
+                                Button("Download Update") {
+                                    store.openAvailableUpdate()
+                                }
                             }
                         }
-                        .disabled(store.isCheckingForUpdates)
 
-                        if store.updateInfo?.isUpdateAvailable == true {
-                            Button("Download Update") {
-                                store.openAvailableUpdate()
-                            }
+                        if !store.updateMessage.isEmpty {
+                            Text(store.updateMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                    }
-
-                    if !store.updateMessage.isEmpty {
-                        Text(store.updateMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .formStyle(.grouped)
-        .padding()
-        .frame(width: 620)
+        .frame(minWidth: 720, minHeight: 660)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.headline)
+            content()
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    @ViewBuilder
+    private func settingsRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+                .frame(width: 120, alignment: .leading)
+            content()
+        }
     }
 
     @ViewBuilder
@@ -168,9 +222,11 @@ struct SettingsView: View {
         GridRow {
             Text(title)
                 .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
             Text(value)
                 .textSelection(.enabled)
                 .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 
@@ -183,14 +239,5 @@ struct SettingsView: View {
                 store.settings.setLabel(label, isEnabled: isEnabled)
             }
         )
-    }
-}
-
-private extension Array {
-    func chunked(into size: Int) -> [[Element]] {
-        guard size > 0 else { return [] }
-        return stride(from: 0, to: count, by: size).map { start in
-            Array(self[start..<Swift.min(start + size, count)])
-        }
     }
 }

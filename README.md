@@ -4,7 +4,7 @@
 [![Release](https://github.com/jasoncantor/veilpdf/actions/workflows/release.yml/badge.svg)](https://github.com/jasoncantor/veilpdf/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-VeilPDF is a macOS app for redacting sensitive information from PDFs before you share them. It runs locally, detects common personally identifiable information with GLiNER-PII, and writes a new redacted PDF next to the original file.
+VeilPDF is a macOS app for redacting sensitive information from PDFs before you share them. It runs locally, detects common personally identifiable information with a Mac-friendly GLiNER PII model, and writes a new redacted PDF next to the original file.
 
 ## Download
 
@@ -13,7 +13,7 @@ Download the latest signed and notarized DMG from [GitHub Releases](https://gith
 1. Open the downloaded `VeilPDF-vX.Y.Z.dmg`.
 2. Drag `VeilPDF.app` to Applications.
 3. Open VeilPDF.
-4. In Settings, click `Install GLiNER Runtime` to install the local redaction runtime and model.
+4. In Settings, click `Install Included Runtime` to install the bundled GLiNER runtime and model locally.
 5. Add a PDF with the `+` button or by dragging it into the sidebar.
 
 If macOS blocks an older build, remove that copy and install the latest release from the link above.
@@ -24,7 +24,9 @@ If macOS blocks an older build, remove that copy and install the latest release 
 - Applies real PDF redactions with black filled redaction boxes.
 - Lets you choose which PII categories should be redacted.
 - Keeps processing local to your Mac.
-- Installs the GLiNER runtime and model into your user Application Support folder.
+- Includes a bundled GLiNER runtime payload and Mac-friendly edge model in release builds.
+- Installs the included runtime into your user Application Support folder.
+- Uses Apple Metal through PyTorch MPS automatically when available, with CPU fallback.
 - Checks GitHub Releases for app updates from inside VeilPDF.
 - Supports drag-and-drop PDF intake and batch-style job tracking.
 - Includes a regex test mode for quick local checks.
@@ -41,9 +43,11 @@ Redacted files are saved next to the original PDF with `-redacted` appended to t
 
 ## Runtime
 
-VeilPDF uses a local Python environment for GLiNER-PII detection. From Settings, click `Install GLiNER Runtime` to create a VeilPDF-managed environment under `~/Library/Application Support/VeilPDF`, install `PyMuPDF` and `gliner`, and download the GLiNER-PII model.
+VeilPDF uses a local Python environment for GLiNER PII detection. Release builds include a runtime payload with Python packages and the `knowledgator/gliner-pii-edge-v1.0` model cache. From Settings, click `Install Included Runtime` to create a VeilPDF-managed environment under `~/Library/Application Support/VeilPDF` and install that bundled payload locally.
 
-If you prefer to manage Python yourself, open Settings and point the Python field at an interpreter that already has `PyMuPDF` and `gliner` installed.
+The default acceleration setting is `Auto (Metal)`. On Apple Silicon Macs, VeilPDF asks PyTorch to use the MPS device, which runs through Apple Metal. You can force `Metal` or `CPU` in Settings.
+
+If you prefer to manage Python yourself, open Settings and point the Python field at an interpreter that already has `PyMuPDF`, `gliner`, and the selected GLiNER model available.
 
 ## Updates
 
